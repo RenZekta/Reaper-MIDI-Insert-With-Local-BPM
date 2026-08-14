@@ -28,7 +28,7 @@ The resulting MIDI block features a clean timeline grid matching your local arra
 1. Open REAPER.
 2. Open the Action List by pressing `?` or navigating to `Actions > Show action list`.
 3. In the bottom right corner, click **ReaScript: New...**.
-4. Set the file name to `MIDI-Insert-With-Local-BPM` (or any other) and click **Save**.
+4. Set the file name to `Reaper-MIDI-Insert-With-Local-BPM` (or any other) and click **Save**.
 5. Copy the full source code from the `.lua` file in this repository and paste it into the built-in development environment editor.
 6. Press `Ctrl + S` (Windows) or `Cmd + S` (macOS) to save, then close the script window.
 
