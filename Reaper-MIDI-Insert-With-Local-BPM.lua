@@ -1,11 +1,14 @@
--- Reaper-MIDI-Insert-With-Local-BPM https://github.com/RenZekta/Reaper-MIDI-Insert-With-Local-BPM
--- SMF injection (TPQN 960) -> in-project flatten -> native Glue rebuilds
--- the source extent to the item bounds -> looping ON, boundary at block end.
--- No ghost notes, no loops, one action.
+-- ============================================================================
+-- Script: Reaper-MIDI-Insert-With-Local-BPM.lua
+-- Repository: https://github.com/RenZekta/Reaper-MIDI-Insert-With-Local-BPM
+-- Description: Inserts a blank MIDI item matching the local BPM and Time 
+--              Signature within a Time project timebase environment, 
+--              rebuilding loop extents without ghost notes.
+-- ============================================================================
 
 reaper.Undo_BeginBlock()
 
-local PPQ = 960
+local PPQ = 960 -- Native REAPER MIDI ticks per quarter note resolution
 
 local track = reaper.GetSelectedTrack(0, 0)
 local time_start, time_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
@@ -13,7 +16,7 @@ local time_start, time_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, fal
 if track and (time_start ~= time_end) then
   local item_len = time_end - time_start
 
-  -- 1. Local tempo / time signature at selection start
+  -- 1. Fetch precise local tempo and time signature markers at selection start
   local marker_idx = reaper.FindTempoTimeSigMarker(0, time_start)
   local local_bpm, local_bpi, local_denom
   if marker_idx >= 0 then
@@ -24,15 +27,15 @@ if track and (time_start ~= time_end) then
     local_denom = 4
   end
 
-  -- 2. Tempo meta bytes (strict integer casting)
+  -- 2. Compile Tempo Meta events with strict integer casting
   local us_per_qn = math.floor((60000000 / local_bpm) + 0.5) // 1
   local t1 = string.char((us_per_qn >> 16) & 0xFF)
   local t2 = string.char((us_per_qn >> 8) & 0xFF)
   local t3 = string.char(us_per_qn & 0xFF)
 
-  -- 3. Time signature meta bytes (denominator as power of two)
+  -- 3. Compile Time Signature Meta events (denominator as a power of two)
   local denom_int = math.floor(local_denom)
-  local denom_pow = 2
+  local denom_pow = 2 -- Default fallback to 4 (2^2)
   if denom_int == 1 then denom_pow = 0
   elseif denom_int == 2 then denom_pow = 1
   elseif denom_int == 4 then denom_pow = 2
@@ -43,7 +46,7 @@ if track and (time_start ~= time_end) then
   local ts1 = string.char(math.floor(local_bpi) // 1 & 0xFF)
   local ts2 = string.char(denom_pow // 1 & 0xFF)
 
-  -- 4. Block length in ticks + VLQ delta encoder
+  -- 4. Calculate total clock ticks and initialize the VLQ delta encoder
   local total_ticks = math.ceil(item_len * (local_bpm / 60.0) * PPQ) // 1
   if total_ticks < 1 then total_ticks = 1 end
 
@@ -57,7 +60,7 @@ if track and (time_start ~= time_end) then
     return s
   end
 
-  -- 5. SMF Type 0 binary, division = 960 (mirrors native items)
+  -- 5. Construct a fully compliant binary Standard MIDI File (SMF Type 0) layout string
   local header = "MThd\000\000\000\006\000\000\000\001" .. string.char((PPQ >> 8) & 0xFF, PPQ & 0xFF)
   local meta_ts    = "\000\255\088\004" .. ts1 .. ts2 .. "\024\008"
   local meta_tempo = "\000\255\081\003" .. t1 .. t2 .. t3
@@ -66,45 +69,50 @@ if track and (time_start ~= time_end) then
   local track_data  = meta_ts .. meta_tempo .. meta_end
   local track_chunk = "MTrk" .. string.pack(">I4", #track_data) .. track_data
 
+  -- 6. Write binary string payload to a temporary file disk cache
   local temp_path = reaper.GetResourcePath() .. "/temp_physical_import.mid"
   local file = io.open(temp_path, "wb")
   if file then
     file:write(header .. track_chunk)
     file:close()
 
+    -- Cache view positions and clear item selection matrix to target the imported asset safely
     local original_cursor = reaper.GetCursorPosition()
     reaper.SetEditCurPos(time_start, false, false)
-    reaper.Main_OnCommand(40289, 0) -- unselect all items
+    reaper.Main_OnCommand(40289, 0) -- Item: Unselect all items
 
+    -- 7. Execute programmatic file parsing via native asset import routine
     reaper.InsertMedia(temp_path, 0)
 
     local imported_item = reaper.GetSelectedMediaItem(0, 0)
     if imported_item then
+      -- Lock the container's physical layout bounds to absolute Time coordinates
       reaper.SetMediaItemInfo_Value(imported_item, "C_BEATATTACHMODE", 0)
-      reaper.SetMediaItemInfo_Value(imported_item, "B_LOOPSRC", 0)
       reaper.SetMediaItemInfo_Value(imported_item, "D_LENGTH", item_len)
 
+      -- Fire SWS metadata compiler to detach the item map from the master clock track
       local sws = reaper.NamedCommandLookup("_BR_ME_TOGGLE_IGNORE_TEMPO_PO_START")
       if sws ~= 0 then reaper.Main_OnCommand(sws, 0) end
 
-      -- Flatten external reference to in-project
-      reaper.Main_OnCommand(40401, 0)
+      -- Flatten external hard drive asset pointer to an internal in-project take type
+      reaper.Main_OnCommand(40401, 0) -- Item: Convert active take MIDI to in-project
 
-      -- Native glue: rebuilds the in-project source with extent == item
-      -- bounds. The stub extent is discarded; notches cannot exist.
+      -- Native Glue Rebuild: Discards old structure boundaries and maps the new 
+      -- database source extent precisely to the item's current physical boundaries.
       reaper.Main_OnCommand(41588, 0) -- Item: Glue items, ignoring time selection
 
-      -- Glue replaced the item object; re-fetch the glued result.
+      -- Re-fetch the newly instantiated glued item object handle to lock its properties
       local final_item = reaper.GetSelectedMediaItem(0, 0) or imported_item
       reaper.SetMediaItemInfo_Value(final_item, "C_BEATATTACHMODE", 0)
       reaper.SetMediaItemInfo_Value(final_item, "D_LENGTH", item_len)
-      reaper.SetMediaItemInfo_Value(final_item, "B_LOOPSRC", 1) -- looping ON, boundary at end
+      reaper.SetMediaItemInfo_Value(final_item, "B_LOOPSRC", 1) -- Ensure edge-drag looping is active
     end
 
+    -- Clean environment states and purge hard drive file cache
     reaper.SetEditCurPos(original_cursor, false, false)
     os.remove(temp_path)
   end
 end
 
 reaper.UpdateArrange()
-reaper.Undo_EndBlock("Physical MIDI Import (Glue Final)", -1)
+reaper.Undo_EndBlock("Physical MIDI Import (Optimized Glue)", -1)
