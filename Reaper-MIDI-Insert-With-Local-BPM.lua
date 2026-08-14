@@ -1,7 +1,7 @@
--- PHYSICAL MIDI IMPORT — FINAL SINGLE-SCRIPT
+-- Reaper-MIDI-Insert-With-Local-BPM https://github.com/RenZekta/Reaper-MIDI-Insert-With-Local-BPM
 -- SMF injection (TPQN 960) -> in-project flatten -> native Glue rebuilds
 -- the source extent to the item bounds -> looping ON, boundary at block end.
--- No ghost notes, no notches, no second step.
+-- No ghost notes, no loops, one action.
 
 reaper.Undo_BeginBlock()
 
