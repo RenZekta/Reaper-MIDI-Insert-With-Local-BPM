@@ -5,7 +5,8 @@
 --              Signature within a Time project timebase environment, 
 --              rebuilding loop extents without ghost notes. Matches user PPQ 
 --              and CC interpolation preferences, prevents automatic empty 
---              track renaming, and enforces two-digit lane naming conventions.
+--              track renaming, enforces two-digit lane naming conventions,
+--              and preserves track automation modes post-glue.
 -- ============================================================================
 
 reaper.Undo_BeginBlock()
@@ -25,11 +26,14 @@ local time_start, time_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, fal
 if track and (time_start ~= time_end) then
   local item_len = time_end - time_start
 
-  -- 4. Inspect original track label state to mitigate native renaming bugs
+  -- 4. CACHE TRACK AUTOMATION MODE: Prevents native action 41588 from forcing "Read" mode
+  local original_automation_mode = reaper.GetTrackAutomationMode(track)
+
+  -- 5. Inspect original track label state to mitigate native renaming bugs
   local _, track_name_orig = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
   local is_track_name_originally_empty = (track_name_orig == "")
 
-  -- 5. Fetch precise local tempo and time signature markers at selection start
+  -- 6. Fetch precise local tempo and time signature markers at selection start
   local marker_idx = reaper.FindTempoTimeSigMarker(0, time_start)
   local local_bpm, local_bpi, local_denom
   if marker_idx >= 0 then
@@ -40,13 +44,13 @@ if track and (time_start ~= time_end) then
     local_denom = 4
   end
 
-  -- 6. Compile Tempo Meta events with strict integer casting
+  -- 7. Compile Tempo Meta events with strict integer casting
   local us_per_qn = math.floor((60000000 / local_bpm) + 0.5) // 1
   local t1 = string.char((us_per_qn >> 16) & 0xFF)
   local t2 = string.char((us_per_qn >> 8) & 0xFF)
   local t3 = string.char(us_per_qn & 0xFF)
 
-  -- 7. Compile Time Signature Meta events (denominator as a power of two)
+  -- 8. Compile Time Signature Meta events (denominator as a power of two)
   local denom_int = math.floor(local_denom)
   local denom_pow = 2 -- Default fallback to 4 (2^2)
   if denom_int == 1 then denom_pow = 0
@@ -59,7 +63,7 @@ if track and (time_start ~= time_end) then
   local ts1 = string.char(math.floor(local_bpi) // 1 & 0xFF)
   local ts2 = string.char(denom_pow // 1 & 0xFF)
 
-  -- 8. Calculate total clock ticks using user preferred PPQ resolution
+  -- 9. Calculate total clock ticks using user preferred PPQ resolution
   local total_ticks = math.ceil(item_len * (local_bpm / 60.0) * PPQ) // 1
   if total_ticks < 1 then total_ticks = 1 end
 
@@ -73,7 +77,7 @@ if track and (time_start ~= time_end) then
     return s
   end
 
-  -- 9. Construct a fully compliant binary Standard MIDI File (SMF Type 0) layout string
+  -- 10. Construct a fully compliant binary Standard MIDI File (SMF Type 0) layout string
   local header = "MThd\000\000\000\006\000\000\000\001" .. string.char((PPQ >> 8) & 0xFF, PPQ & 0xFF)
   local meta_ts    = "\000\255\088\004" .. ts1 .. ts2 .. "\024\008"
   local meta_tempo = "\000\255\081\003" .. t1 .. t2 .. t3
@@ -82,7 +86,7 @@ if track and (time_start ~= time_end) then
   local track_data  = meta_ts .. meta_tempo .. meta_end
   local track_chunk = "MTrk" .. string.pack(">I4", #track_data) .. track_data
 
-  -- 10. Write binary string payload to a temporary file disk cache
+  -- 11. Write binary string payload to a temporary file disk cache
   local temp_path = reaper.GetResourcePath() .. "/temp_physical_import.mid"
   local file = io.open(temp_path, "wb")
   if file then
@@ -94,7 +98,7 @@ if track and (time_start ~= time_end) then
     reaper.SetEditCurPos(time_start, false, false)
     reaper.Main_OnCommand(40289, 0) -- Item: Unselect all items
 
-    -- 11. Execute programmatic file parsing via native asset import routine
+    -- 12. Execute programmatic file parsing via native asset import routine
     reaper.InsertMedia(temp_path, 0)
 
     local imported_item = reaper.GetSelectedMediaItem(0, 0)
@@ -120,7 +124,7 @@ if track and (time_start ~= time_end) then
       reaper.SetMediaItemInfo_Value(final_item, "D_LENGTH", item_len)
       reaper.SetMediaItemInfo_Value(final_item, "B_LOOPSRC", 1) -- Ensure edge-drag looping is active
       
-      -- 12. Seamless Two-Digit Lane Naming & Erase Mitigation Logic
+      -- 13. Seamless Two-Digit Lane Naming & Erase Mitigation Logic
       local final_take = reaper.GetActiveTake(final_item)
       if final_take then
         -- Format top-to-bottom lane number index string to always append a leading zero
@@ -142,6 +146,9 @@ if track and (time_start ~= time_end) then
         reaper.GetSetMediaItemTakeInfo_String(final_take, "P_NAME", custom_take_name, true)
       end
     end
+
+    -- 14. RESTORE AUTOMATION MODE: Forcefully restores original tracking behavior over native layout bugs
+    reaper.SetTrackAutomationMode(track, original_automation_mode)
 
     -- Clean environment states and purge hard drive file cache
     reaper.SetEditCurPos(original_cursor, false, false)
