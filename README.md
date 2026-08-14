@@ -10,13 +10,13 @@ While SWS extension actions can manually force an item to "Ignore project tempo,
 
 ## The Solution
 
-This script automates a stable two-phase workaround by bypassing REAPER's blank internal MIDI item initialization completely:
+This script automates a stable workaround by bypassing blank internal MIDI item initialization:
+1. **Binary Asset Generation:** Compiles a compliant SMF Type 0 binary block in the system cache with local BPM/time signature parameters, matching the active PPQ user preference.
+2. **External File Import:** Injects the cache file via `reaper.InsertMedia` to be evaluated as an isolated external asset.
+3. **Database Reconstruction:** Forces a timebase override (`C_BEATATTACHMODE = 0`), converts the asset to an internal take, and glues it (`41588`) to match selection limits.
+4. **Adaptive Integration & Renaming:** Formats the take using two-digit track lane indicators (e.g., `01`, `02`) and automated naming (`XX-TrackName-MIDI` or `XX-MIDI`), while preventing unnamed tracks from inheriting temporary file names.
 
-1. **Binary Asset Generation:** The script dynamically compiles a raw, compliant Standard MIDI File (SMF Type 0) binary block in the system cache, pre-baked with the exact local BPM and time signature parameters extracted from the selection position.
-2. **External File Import Routine:** It injects this cache file via REAPER's native media importing module (`reaper.InsertMedia`). Because the file arrives with matching metadata, REAPER evaluates it as an isolated external asset.
-3. **Database Structural Reconstruction:** The script forces an absolute timebase override on the item container (`C_BEATATTACHMODE = 0`), converts the asset to an internal in-project take, and triggers a specialized native glue action (`41588`). This discards old structure boundaries and maps the internal source extent perfectly to the physical limits of your time selection. 
-
-The resulting MIDI block features a clean timeline grid matching your local arrangement, zero visual loop-notch artifacts, and complete structural stability if closed without saving. No ghost notes are added.
+The resulting MIDI block features a clean timeline grid matching local arrangement, zero loop-notches, and complete structural stability if closed without saving. No ghost notes are added.
 
 ## Installation
 
