@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Script: Reaper-MIDI-Insert-With-Local-BPM.lua
--- Repository: https://github.com
+-- Repository: https://github.com/RenZekta/Reaper-MIDI-Insert-With-Local-BPM
 -- Description: Inserts a blank MIDI item matching the local BPM and Time 
 --              Signature within a Time project timebase environment, 
 --              rebuilding loop extents without ghost notes. Matches user PPQ 
