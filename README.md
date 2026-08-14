@@ -11,12 +11,13 @@ While SWS extension actions can manually force an item to "Ignore project tempo,
 ## The Solution
 
 This script automates a stable workaround by bypassing blank internal MIDI item initialization:
-1. **Binary Asset Generation:** Compiles a compliant SMF Type 0 binary block in the system cache with local BPM/time signature parameters, matching the active TPQN and PPQ user preference.
+1. **Binary Asset Generation:** Compiles a compliant SMF Type 0 binary block in the system cache with local BPM/time signature parameters, matching active user preferences for **[Ticks per quarter note](https://reaper.fm)** (`miditicksperqn`) and **[CC segment interpolation resolution](https://reaper.fm)** (`midiccinterpres`).
 2. **External File Import:** Injects the cache file via `reaper.InsertMedia` to be evaluated as an isolated external asset.
-3. **Database Reconstruction:** Forces a timebase override (`C_BEATATTACHMODE = 0`), converts the asset to an internal take, and glues it (`41588`) to match selection limits.
+3. **Database Reconstruction:** Forces a timebase override (`C_BEATATTACHMODE = 0`), converts the asset to an internal take, caches the track's original automation state, applies the layout glue routine (`41588`), and restores the track automation mode to prevent unwanted overrides.
 4. **Adaptive Integration & Renaming:** Formats the take using two-digit track lane indicators (e.g., `01`, `02`) and automated naming (`XX-TrackName-MIDI` or `XX-MIDI`), while preventing unnamed tracks from inheriting temporary file names.
 
-The resulting MIDI block features a clean timeline grid matching local arrangement, zero loop-notches, and complete structural stability if closed without saving. No ghost notes are added.
+The resulting MIDI block features a clean timeline grid matching local arrangement, zero loops, and complete structural stability if closed without saving. No ghost notes are added.
+
 
 ## Installation
 
