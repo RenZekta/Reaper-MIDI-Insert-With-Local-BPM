@@ -6,7 +6,7 @@ A ReaScript for Cockos REAPER that resolves a native MIDI initialization issue w
 
 When a REAPER project timebase is set to **Time**, drawing or inserting a new MIDI item natively via `Insert > New MIDI item` or mouse modifiers causes the item to ignore the local tempo and time signature markers at its physical timeline position. Instead, the item initializes using the project's global default statistics (typically found at Bar 1, Beat 1). 
 
-While SWS extension actions can manually force an item to "Ignore project tempo," applying this to an unedited, blank project-native container is unstable. With default settings Attions make no effect, and is saving new MIDI objects as .midi (Preferences -> MIDI), is enabled, closing the MIDI piano roll editor without explicitly saving causes the item boundaries to shrink, notes to offset, or the layout engine to render a repetitive wall of frequent loop notches across the block. Unusable.
+While SWS extension actions can manually force an item to "Ignore project tempo," applying this to an unedited, blank project-native container is unstable. With default settings Attions make no effect, and if (Preferences -> MIDI) `Create new MIDI items as:` `.MID files` , is enabled, closing the MIDI piano roll editor without explicitly saving causes the item boundaries to shrink, notes to offset, or the layout engine to render a repetitive wall of frequent loop notches across the block. Unusable.
 
 ## The Solution
 
