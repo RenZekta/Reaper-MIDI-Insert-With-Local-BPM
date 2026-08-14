@@ -1,6 +1,6 @@
 # Reaper MIDI Insert with Local BPM
 
-A ReaScript for Cockos REAPER that resolves a native MIDI initialization bug when working within projects configured with a "Time" timebase.
+A ReaScript for Cockos REAPER that resolves a native MIDI initialization issue when working within projects configured with a "Time" timebase.
 
 ## The Problem
 
