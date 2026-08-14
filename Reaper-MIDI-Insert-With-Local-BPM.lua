@@ -6,7 +6,8 @@
 --              rebuilding loop extents without ghost notes. Matches user PPQ 
 --              and CC interpolation preferences, prevents automatic empty 
 --              track renaming, enforces two-digit lane naming conventions,
---              and preserves track automation modes post-glue.
+--              preserves track automation modes post-glue, and dynamically
+--              reads global default track settings on empty space fallbacks.
 -- ============================================================================
 
 reaper.Undo_BeginBlock()
@@ -19,21 +20,25 @@ if PPQ <= 0 then PPQ = 960 end
 local CC_RES = reaper.SNM_GetIntConfigVar("midiccinterpres", 32)
 if CC_RES <= 0 then CC_RES = 32 end
 
--- 3. Locate active track and current timeline time-selection bounds
+-- 3. Read global preference for Default Track Automation Mode
+local DEFAULT_AUTO_MODE = reaper.SNM_GetIntConfigVar("launchnewtrkmode", 0)
+if DEFAULT_AUTO_MODE < 0 then DEFAULT_AUTO_MODE = 0 end
+
+-- 4. Locate active track and current timeline time-selection bounds
 local track = reaper.GetSelectedTrack(0, 0)
 local time_start, time_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
 
 if track and (time_start ~= time_end) then
   local item_len = time_end - time_start
 
-  -- 4. CACHE TRACK AUTOMATION MODE: Prevents native action 41588 from forcing "Read" mode
+  -- 5. CACHE TRACK AUTOMATION MODE: Prevents native action 41588 from forcing "Read" mode
   local original_automation_mode = reaper.GetTrackAutomationMode(track)
 
-  -- 5. Inspect original track label state to mitigate native renaming bugs
+  -- 6. Inspect original track label state to mitigate native renaming bugs
   local _, track_name_orig = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
   local is_track_name_originally_empty = (track_name_orig == "")
 
-  -- 6. Fetch precise local tempo and time signature markers at selection start
+  -- 7. Fetch precise local tempo and time signature markers at selection start
   local marker_idx = reaper.FindTempoTimeSigMarker(0, time_start)
   local local_bpm, local_bpi, local_denom
   if marker_idx >= 0 then
@@ -44,13 +49,13 @@ if track and (time_start ~= time_end) then
     local_denom = 4
   end
 
-  -- 7. Compile Tempo Meta events with strict integer casting
+  -- 8. Compile Tempo Meta events with strict integer casting
   local us_per_qn = math.floor((60000000 / local_bpm) + 0.5) // 1
   local t1 = string.char((us_per_qn >> 16) & 0xFF)
   local t2 = string.char((us_per_qn >> 8) & 0xFF)
   local t3 = string.char(us_per_qn & 0xFF)
 
-  -- 8. Compile Time Signature Meta events (denominator as a power of two)
+  -- 9. Compile Time Signature Meta events (denominator as a power of two)
   local denom_int = math.floor(local_denom)
   local denom_pow = 2 -- Default fallback to 4 (2^2)
   if denom_int == 1 then denom_pow = 0
@@ -63,7 +68,7 @@ if track and (time_start ~= time_end) then
   local ts1 = string.char(math.floor(local_bpi) // 1 & 0xFF)
   local ts2 = string.char(denom_pow // 1 & 0xFF)
 
-  -- 9. Calculate total clock ticks using user preferred PPQ resolution
+  -- 10. Calculate total clock ticks using user preferred PPQ resolution
   local total_ticks = math.ceil(item_len * (local_bpm / 60.0) * PPQ) // 1
   if total_ticks < 1 then total_ticks = 1 end
 
@@ -77,7 +82,7 @@ if track and (time_start ~= time_end) then
     return s
   end
 
-  -- 10. Construct a fully compliant binary Standard MIDI File (SMF Type 0) layout string
+  -- 11. Construct a fully compliant binary Standard MIDI File (SMF Type 0) layout string
   local header = "MThd\000\000\000\006\000\000\000\001" .. string.char((PPQ >> 8) & 0xFF, PPQ & 0xFF)
   local meta_ts    = "\000\255\088\004" .. ts1 .. ts2 .. "\024\008"
   local meta_tempo = "\000\255\081\003" .. t1 .. t2 .. t3
@@ -86,7 +91,7 @@ if track and (time_start ~= time_end) then
   local track_data  = meta_ts .. meta_tempo .. meta_end
   local track_chunk = "MTrk" .. string.pack(">I4", #track_data) .. track_data
 
-  -- 11. Write binary string payload to a temporary file disk cache
+  -- 12. Write binary string payload to a temporary file disk cache
   local temp_path = reaper.GetResourcePath() .. "/temp_physical_import.mid"
   local file = io.open(temp_path, "wb")
   if file then
@@ -98,11 +103,16 @@ if track and (time_start ~= time_end) then
     reaper.SetEditCurPos(time_start, false, false)
     reaper.Main_OnCommand(40289, 0) -- Item: Unselect all items
 
-    -- 12. Execute programmatic file parsing via native asset import routine
+    -- 13. Execute programmatic file parsing via native asset import routine
     reaper.InsertMedia(temp_path, 0)
 
     local imported_item = reaper.GetSelectedMediaItem(0, 0)
     if imported_item then
+      -- DYNAMIC CONTEXT ROUTING: Identify the actual parent track of the inserted block
+      -- This catches if REAPER spawned a brand new track in empty workspace zones
+      local actual_track = reaper.GetMediaItemTrack(imported_item)
+      local is_new_fallback_track = (actual_track ~= track)
+
       -- Lock the container's physical layout bounds to absolute Time coordinates
       reaper.SetMediaItemInfo_Value(imported_item, "C_BEATATTACHMODE", 0)
       reaper.SetMediaItemInfo_Value(imported_item, "D_LENGTH", item_len)
@@ -124,31 +134,42 @@ if track and (time_start ~= time_end) then
       reaper.SetMediaItemInfo_Value(final_item, "D_LENGTH", item_len)
       reaper.SetMediaItemInfo_Value(final_item, "B_LOOPSRC", 1) -- Ensure edge-drag looping is active
       
-      -- 13. Seamless Two-Digit Lane Naming & Erase Mitigation Logic
+      -- 14. Seamless Two-Digit Lane Naming & Erase Mitigation Logic
       local final_take = reaper.GetActiveTake(final_item)
       if final_take then
-        -- Format top-to-bottom lane number index string to always append a leading zero
-        local track_idx = math.floor(reaper.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER"))
+        -- Format top-to-bottom lane number index string using the verified parent track lane
+        local track_idx = math.floor(reaper.GetMediaTrackInfo_Value(actual_track, "IP_TRACKNUMBER"))
         local track_idx_str = string.format("%02d", track_idx)
         
         local custom_take_name
-        if is_track_name_originally_empty then
-          -- Format for explicitly blank tracks: e.g., "05-MIDI"
+        if is_new_fallback_track then
+          -- Fallback track state: Cleanly name item to lane index and reset track name leak
           custom_take_name = string.format("%s-MIDI", track_idx_str)
-          -- Revert the native file-importer track auto-rename leak back to completely empty
-          reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", true)
+          reaper.GetSetMediaTrackInfo_String(actual_track, "P_NAME", "", true)
+          reaper.SetTrackAutomationMode(actual_track, DEFAULT_AUTO_MODE) -- Apply user's custom preference default
+        elseif is_track_name_originally_empty then
+          -- Existing blank track state: Format item and erase file name leak from header
+          custom_take_name = string.format("%s-MIDI", track_idx_str)
+          reaper.GetSetMediaTrackInfo_String(actual_track, "P_NAME", "", true)
+          reaper.SetTrackAutomationMode(actual_track, original_automation_mode)
         else
-          -- Format for customized named tracks: e.g., "05-Synth Lead-MIDI"
+          -- Existing labeled track state: Format item mapping cleanly with cached label
           custom_take_name = string.format("%s-%s-MIDI", track_idx_str, track_name_orig)
+          reaper.SetTrackAutomationMode(actual_track, original_automation_mode)
         end
         
         -- Flash finalized name parameters cleanly into the active take metadata string
         reaper.GetSetMediaItemTakeInfo_String(final_take, "P_NAME", custom_take_name, true)
       end
+      
+      -- If fallback routing didn't trigger, double check original track safety bounds
+      if not is_new_fallback_track then
+        reaper.SetTrackAutomationMode(track, original_automation_mode)
+      end
+    else
+      -- Absolute safety fallback if no item structure parsed cleanly
+      reaper.SetTrackAutomationMode(track, original_automation_mode)
     end
-
-    -- 14. RESTORE AUTOMATION MODE: Forcefully restores original tracking behavior over native layout bugs
-    reaper.SetTrackAutomationMode(track, original_automation_mode)
 
     -- Clean environment states and purge hard drive file cache
     reaper.SetEditCurPos(original_cursor, false, false)
