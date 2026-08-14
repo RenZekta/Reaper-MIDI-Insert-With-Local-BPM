@@ -10,19 +10,14 @@
 
 reaper.Undo_BeginBlock()
 
--- 1. Read user preferences for Ticks Per Quarter Note (default to 960 if fallback occurs)
+-- 1. Read user preferences for Ticks Per Quarter Note
 local PPQ = reaper.SNM_GetIntConfigVar("miditicksperqn", 960)
 if PPQ <= 0 then PPQ = 960 end
 
-local track = reaper.GetSelectedTrack(0, 0)
-local time_start, time_end = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+-- 2. Read user preferences for CC Segment Interpolation Resolution
+local CC_RES = reaper.SNM_GetIntConfigVar("midiccinterpres", 32)
+if CC_RES <= 0 then CC_RES = 32 end
 
-if track and (time_start ~= time_end) then
-  local item_len = time_end - time_start
-
-  -- 2. Inspect original track label state to mitigate native renaming bugs
-  local _, track_name_orig = reaper.GetSetMediaTrackInfo_String(track, "P_NAME", "", false)
-  local is_track_name_originally_empty = (track_name_orig == "")
 
   -- 3. Fetch precise local tempo and time signature markers at selection start
   local marker_idx = reaper.FindTempoTimeSigMarker(0, time_start)
